@@ -3,6 +3,7 @@ import unittest
 import time
 import json
 import base64
+import celery.result
 from pymongo import MongoClient
 
 """
@@ -24,6 +25,18 @@ modification, are permitted provided that the following conditions are met:
 
 See LICENSE for full text.
 """
+
+
+class testreq(celery.result.AsyncResult):
+
+    def __init__(self, state, info, id, resp):
+        self._state = state
+        self.id = id
+        self._cache = {'result': info, 'status': state}
+        self.resp = resp
+
+    def get(self):
+        return self.resp
 
 
 class ImageMngrTestCase(unittest.TestCase):
@@ -60,8 +73,8 @@ class ImageMngrTestCase(unittest.TestCase):
             pass  # os.unlink(self.logfile)
         # Cleanup Mongo
         self.images.remove({})
-        #if self.images.find_one(self.query):
-        #    self.images.remove(self.query)
+        # if self.images.find_one(self.query):
+        #     self.images.remove(self.query)
 
     def tearDown(self):
         """
@@ -575,7 +588,6 @@ class ImageMngrTestCase(unittest.TestCase):
         assert '_id' in mrec
         # Track through transistions
         state = self.time_wait(id)
-        #Debug
         assert state == 'READY'
         imagerec = self.m.lookup(session, pr)
         assert 'ENTRY' in imagerec
@@ -852,7 +864,6 @@ class ImageMngrTestCase(unittest.TestCase):
         self.assertIn(1001, mrec['userACL'])
         # Track through transistions
         state = self.time_wait(id)
-        #Debug
         self.assertEquals(state, 'READY')
         imagerec = self.m.lookup(session, pr)
         assert 'ENTRY' in imagerec
@@ -897,6 +908,56 @@ class ImageMngrTestCase(unittest.TestCase):
     # user doesn't have permissions to
     def test_acl_update_denied(self):
         pass
+
+    def test_meta_only_odd_state(self):
+        # This mainly shows up in testing.  Imagine a file has been
+        # pulled (exist on disk) but there isn't a record for it.
+        # This pull request will be the only record, but it will
+        # look like a metadata only update.
+        myid = '1234'
+        response = {'id': myid, 'meta_only': True,
+                    'userACL': None, 'groupACL': None,
+                    'private': False}
+        req = testreq('READY', 'blah', myid, response)
+        rec = self.good_pullrecord()
+        rec['id'] = myid
+        self.images.insert(rec)
+
+        from shifter_imagegw.imagemngr import ImageMngr
+
+        m = ImageMngr(self.config)
+        m.task_image_id[req] = rec['_id']
+        m.tasks = [req]
+        m.update_states()
+        rec = self.images.find_one({'_id': rec['_id']})
+        self.assertIsNotNone(rec)
+
+    def test_meta_only_expected_state(self):
+        # This is the opposite of the previous test.
+        # Here we have a meta_only update.  The pull
+        # request record should get removed when everything is done.
+        myid = '1234'
+        irec = self.good_record()
+        irec['id'] = myid
+        self.images.insert(irec)
+        response = {'id': myid, 'meta_only': True,
+                    'userACL': None, 'groupACL': None,
+                    'private': False}
+        req = testreq('READY', 'blah', myid, response)
+        rec = self.good_pullrecord()
+        rec['id'] = myid
+        self.images.insert(rec)
+
+        from shifter_imagegw.imagemngr import ImageMngr
+
+        m = ImageMngr(self.config)
+        m.task_image_id[req] = rec['_id']
+        m.tasks = [req]
+        m.update_states()
+        rec = self.images.find_one({'_id': rec['_id']})
+        self.assertIsNone(rec)
+        irec = self.images.find_one({'_id': irec['_id']})
+        self.assertIsNotNone(irec)
 
     def test_expire_remote(self):
         system = self.system
@@ -1057,6 +1118,7 @@ class ImageMngrTestCase(unittest.TestCase):
         recs = self.m.get_metrics(session, self.system, 101)  # ,delay=False)
         self.assertIsNotNone(recs)
         self.assertEquals(len(recs), 100)
+
 
 if __name__ == '__main__':
     unittest.main()

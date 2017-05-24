@@ -403,6 +403,7 @@ class ImageMngr(object):
             if rec['status'] == 'READY':
                 continue
             else:
+                self.logger.debug('removing in new puull=%s', rec['_id'])
                 self._images_remove({'_id': rec['_id']})
         newimage = {
             'format': 'invalid',  # <ext4|squashfs|vfs>
@@ -439,7 +440,6 @@ class ImageMngr(object):
             'pulltag': image['tag']
         }
         self.logger.debug('Pull called Test Mode=%d', testmode)
-        #self.logger.debug(image)
         if not self.check_session(session, request['system']):
             self.logger.warn('Invalid session on system %s', request['system'])
             raise OSError("Invalid Session")
@@ -570,7 +570,7 @@ class ImageMngr(object):
             self.logger.error('ERROR: Missing pull request (r=%s)',
                               str(response))
             return
-        #Check that this image ident doesn't already exist for this system
+        # Check that this image ident doesn't already exist for this system
         rec = self._images_find_one({'id': response['id'], 'status': 'READY',
                                     'system': pullrec['system']})
         if rec is None:
@@ -591,7 +591,8 @@ class ImageMngr(object):
             }
             self.logger.debug("Doing ACLs update")
             self.update_mongo(rec['_id'], updates)
-            self._images_remove({'_id': ident})
+            if rec['_id'] != ident:
+                self._images_remove({'_id': ident})
 
     def complete_pull(self, ident, response):
         """
@@ -603,7 +604,7 @@ class ImageMngr(object):
         if pullrec is None:
             self.logger.warn('Missing pull request (r=%s)', str(response))
             return
-        #Check that this image ident doesn't already exist for this system
+        # Check that this image ident doesn't already exist for this system
         rec = self._images_find_one({'id': response['id'],
                                     'system': pullrec['system']})
         tag = pullrec['pulltag']
@@ -653,16 +654,6 @@ class ImageMngr(object):
         for key in mappings.keys():
             if key in resp:
                 setline[mappings[key]] = resp[key]
-        #if 'id' in resp:
-        #    setline['id'] = resp['id']
-        # if 'entrypoint' in resp:
-        #     setline['ENTRY'] = resp['entrypoint']
-        # if 'env' in resp:
-        #     setline['ENV'] = resp['env']
-        # if 'workdir' in resp:
-        #     setline['WORKDIR'] = resp['workdir']
-        # if 'last_pull' in resp:
-        #     setline['last_pull'] = resp['last_pull']
 
         self._images_update({'_id': ident}, {'$set': setline})
 
@@ -684,7 +675,6 @@ class ImageMngr(object):
         Update the states of all active transactions.
         Cleanup failed transcations after a period
         """
-        #logger.debug("Update_states called")
         i = 0
         tasks = self.tasks
 
@@ -719,7 +709,6 @@ class ImageMngr(object):
                     self.update_acls(self.task_image_id[req], response)
                 else:
                     self.complete_pull(self.task_image_id[req], response)
-                self.logger.debug('meta=%s', str(response))
                 # Now save the response
                 self.tasks.remove(req)
             i += 1
@@ -728,6 +717,7 @@ class ImageMngr(object):
             nextpull = self.pullupdatetimeout + rec['last_pull']
             # It it has been a while then let's clean up
             if time() > nextpull:
+                self.logger.debug('removing=%s', rec['_id'])
                 self._images_remove({'_id': rec['_id']})
 
     def autoexpire(self, session, system, testmode=0):
@@ -875,6 +865,7 @@ def main():
     else:
         print "Unknown command %s" % (command)
         usage()
+
 
 if __name__ == '__main__':
     main()
