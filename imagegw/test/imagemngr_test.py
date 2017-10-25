@@ -78,7 +78,7 @@ class ImageMngrTestCase(unittest.TestCase):
         """
         self.m.shutdown()
 
-    def time_wait(self, id, wstate='READY', TIMEOUT=30):
+    def time_wait(self, id, wstate='READY', TIMEOUT=200):
         poll_interval = 0.5
         count = TIMEOUT / poll_interval
         state = 'UNKNOWN'

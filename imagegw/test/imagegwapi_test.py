@@ -81,7 +81,7 @@ class GWTestCase(unittest.TestCase):
                 if os.path.exists(fp):
                     os.remove(fp)
 
-    def time_wait_pull(self, urlreq, state='READY', TIMEOUT=30, data=None):
+    def time_wait_pull(self, urlreq, state='READY', TIMEOUT=200, data=None):
         poll_interval = 0.5
         count = TIMEOUT / poll_interval
         cstate = 'UNKNOWN'
