@@ -53,9 +53,6 @@ sudo service munge start
 echo "Starting imagegw api"
 gunicorn -b 0.0.0.0:5000 --backlog 2048 --access-logfile=/var/log/shifter_imagegw/access.log --log-file=/var/log/shifter_imagegw/error.log shifter_imagegw.api:app &
 
-echo "Starting image worker"
-celery -A shifter_imagegw.imageworker worker -Q mycluster -n mycluster.%h --loglevel=debug --logfile=/var/log/shifter_imagegw_worker/mycluster.log &
-
 echo "setting up base config"
 sudo /bin/bash -c "cat /etc/shifter/udiRoot.conf.example | \
          sed 's|etcPath=.*|etcPath=/etc/shifter/shifter_etc_files|g' | \
