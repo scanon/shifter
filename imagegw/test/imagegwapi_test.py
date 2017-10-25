@@ -45,6 +45,8 @@ class GWTestCase(unittest.TestCase):
         self.metrics.remove({})
         self.url = "/api"
         self.system = "systema"
+        system = self.system
+        self.imageDir = self.config['Platforms'][system]['ssh']['imageDir']
         self.type = "docker"
         self.itag = "ubuntu:14.04"
         self.tag = urllib.quote(self.itag)
@@ -72,13 +74,21 @@ class GWTestCase(unittest.TestCase):
     def tearDownClass(cls):
         cls.mgr.shutdown()
 
-    def time_wait(self, urlreq, state='READY', TIMEOUT=30):
+    def cleanup_cache(self):
+        for f in os.listdir(self.imageDir):
+            if f.endswith('.meta') or f.endswith('.squashfs'):
+                fp = '%s/%s' % (self.imageDir, f)
+                if os.path.exists(fp):
+                    os.remove(fp)
+
+    def time_wait_pull(self, urlreq, state='READY', TIMEOUT=30, data=None):
         poll_interval = 0.5
         count = TIMEOUT / poll_interval
         cstate = 'UNKNOWN'
-        uri = '%s/lookup/%s/' % (self.url, urlreq)
+        uri = '%s/pull/%s/' % (self.url, urlreq)
         while (cstate != state and count > 0):
-            rv = self.app.get(uri, headers={AUTH_HEADER: self.auth})
+            rv = self.app.post(uri, headers={AUTH_HEADER: self.auth},
+                               data=data)
             if rv.status_code != 200:
                 time.sleep(1)
                 continue
@@ -91,7 +101,7 @@ class GWTestCase(unittest.TestCase):
             print '  %s...' % (r['status'])
             time.sleep(1)
             count = count - 1
-        return cstate
+        return rv
 
     def good_record(self):
         return {'system': self.system,
@@ -108,6 +118,7 @@ class GWTestCase(unittest.TestCase):
                 }
 
     def test_pull(self):
+        self.cleanup_cache()
         uri = '%s/pull/%s/' % (self.url, self.urlreq)
         data = {'allowed_uids': '1000,1001',
                 'allowed_gids': '1002,1003'}
@@ -122,15 +133,19 @@ class GWTestCase(unittest.TestCase):
         assert 500 in data['groupACL']
         assert 1002 in data['groupACL']
         assert rv.status_code == 200
+        rv = self.time_wait_pull(self.urlreq, data=datajson)
+        r = json.loads(rv.data)
+        self.assertEquals(r['status'], 'READY')
 
     def test_list(self):
+        self.cleanup_cache()
         # Do a pull so we can create an image record
         uri = '%s/list/%s/' % (self.url, 'systemc')
         rv = self.app.get(uri, headers={AUTH_HEADER: self.auth})
         self.assertEquals(rv.status_code, 404)
         uri = '%s/pull/%s/' % (self.url, self.urlreq)
-        rv = self.app.post(uri, headers={AUTH_HEADER: self.auth})
-        assert rv.status_code == 200
+        rv = self.time_wait_pull(self.urlreq)
+        self.assertEqual(rv.status_code, 200)
         uri = '%s/list/%s/' % (self.url, self.system)
         rv = self.app.get(uri, headers={AUTH_HEADER: self.auth})
         assert rv.status_code == 200
@@ -147,20 +162,11 @@ class GWTestCase(unittest.TestCase):
 
     def test_pulllookup(self):
         # Do a pull so we can create an image record
+        self.cleanup_cache()
         uri = '%s/pull/%s/' % (self.url, self.urlreq)
-        i = 0
-        while i < 200:
-            rv = self.app.post(uri, headers={AUTH_HEADER: self.auth})
-            assert rv.status_code == 200
-            r = json.loads(rv.data)
-            if r['status'] == 'READY':
-                break
-            if r['status'] == 'FAILURE':
-                break
-            print '  %s %s...' % (r['status'], r['status_message'])
-            time.sleep(1)
-            i = i + 1
-        print ''
+        rv = self.time_wait_pull(self.urlreq)
+        r = json.loads(rv.data)
+        self.assertEquals(r['status'], 'READY')
         uri = '%s/lookup/%s/' % (self.url, self.urlreq)
         rv = self.app.get(uri, headers={AUTH_HEADER: self.auth})
         assert rv.status_code == 200
@@ -182,6 +188,7 @@ class GWTestCase(unittest.TestCase):
                                        self.tag)
         rv = self.app.get(uri, headers={AUTH_HEADER: self.auth})
         assert rv.status_code == 200
+        time.sleep(2)
 
     def test_autoexpire(self):
         record = self.good_record()

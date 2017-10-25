@@ -340,7 +340,6 @@ class DockerV2Handle(object):
 
         headers = {}
         if creds and self.username is not None and self.password is not None:
-            print "\nUsing Usernmae/Password: private set to True\n"
             self.private = True
             auth = '%s:%s' % (self.username, self.password)
             headers['Authorization'] = 'Basic %s' % base64.b64encode(auth)
@@ -357,7 +356,7 @@ class DockerV2Handle(object):
 
         if resp.status != 200:
             raise ValueError('Bad response getting token: %d', resp.status)
-        if resp.getheader('content-type') != 'application/json':
+        if not resp.getheader('content-type').startswith('application/json'):
             raise ValueError('Invalid response getting token, not json')
 
         auth_resp = json.loads(resp.read())
@@ -381,6 +380,8 @@ class DockerV2Handle(object):
         self._get_auth_header()
 
         req_path = "/v2/%s/manifests/%s" % (self.repo, self.tag)
+        # conn.set_debuglevel(9)
+
         conn.request("GET", req_path, None, self.headers)
         resp1 = conn.getresponse()
 
@@ -697,6 +698,7 @@ def main():
     cache_dir = os.environ['TMPDIR']
     pull_image({'baseUrl': 'https://registry-1.docker.io'}, 'scanon/shanetest',
                'latest', cachedir=cache_dir, expanddir=cache_dir)
+
 
 if __name__ == '__main__':
     main()

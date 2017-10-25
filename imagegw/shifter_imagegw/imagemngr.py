@@ -30,30 +30,11 @@ import json
 import sys
 import os
 import logging
-from time import time, sleep
-from pymongo import MongoClient
-import pymongo.errors
+from time import time
 from shifter_imagegw.auth import Authentication
 from shifter_imagegw.imageworker import WorkerThreads
+from shifter_imagegw.images import Images
 from multiprocessing.process import Process
-
-
-# decorator function to re-attempt any mongo operation that may have failed
-# owing to AutoReconnect (e.g., mongod coming back, etc).  This may increase
-# the opportunity for race conditions, and should be more closely considered
-# for the insert/update functions
-def mongo_reconnect_reattempt(call):
-    """Automatically re-attempt potentially failed mongo operations"""
-    def _mongo_reconnect_safe(self, *args, **kwargs):
-        for _ in xrange(2):
-            try:
-                return call(self, *args, **kwargs)
-            except pymongo.errors.AutoReconnect:
-                self.logger.warn("Error: mongo reconnect attmempt")
-                sleep(2)
-        self.logger.warn("Error: Failed to deal with mongo auto-reconnect!")
-        raise OSError('Reconnect to mongo failed')
-    return _mongo_reconnect_safe
 
 
 class ImageMngr(object):
@@ -106,13 +87,13 @@ class ImageMngr(object):
         self.status_proc = Process(target=self.status_thread,
                                    name='StatusThread')
         self.status_proc.start()
-        client = MongoClient(self.config['MongoDBURI'])
         db_ = self.config['MongoDB']
-        self.images = client[db_].images
-        self.metrics = None
+        self.metrics = False
         if 'Metrics' in self.config and self.config['Metrics'] is True:
-            self.metrics = client[db_].metrics
-        # Initialize data structures
+            # self.metrics = client[db_].metrics
+            self.metrics = True
+        self.images = Images(self.config['MongoDBURI'], db_,
+                             metrics=self.metrics)
 
     def shutdown(self):
         self.status_queue.put('stop')
@@ -121,9 +102,9 @@ class ImageMngr(object):
         """
         This listens for update messages from a queue.
         """
-        client = MongoClient(self.config['MongoDBURI'])
+        uri = self.config['MongoDBURI']
         db_ = self.config['MongoDB']
-        self.images = client[db_].images
+        self.images = Images(uri, db_)
         while True:
             message = self.status_queue.get()
             if message == 'stop':
@@ -135,11 +116,11 @@ class ImageMngr(object):
             # TODO: Handle a failed expire
             if state == "FAILURE":
                 self.logger.warn("Operation failed for %s", ident)
-
-            self.update_mongo_state(ident, state, meta)
             # print "Status: %s" % (state)
             # A response message
             if state != 'READY':
+                meta['state'] = state
+                self.images.update_mongo(ident, meta)
                 continue
             if 'response' in meta and meta['response']:
                 response = meta['response']
@@ -222,7 +203,7 @@ class ImageMngr(object):
         (days, hours, minutes, secs) = expire_timeout.split(':')
         expire = time() + int(secs) + 60 * (int(minutes) +
                                             60 * (int(hours) + 24 * int(days)))
-        self._images_update({'_id': ident}, {'$set': {'expiration': expire}})
+        self.images.reset_image_expire(ident, expire)
         return expire
 
     def _make_acl(self, acllist, id):
@@ -280,19 +261,11 @@ class ImageMngr(object):
         """
         Return the last <limit> lookup records.
         """
-        recs = []
         if not self._isadmin(session, system):
-            return recs
+            return []
         if self.metrics is None:
-            return recs
-        count = self.metrics.count()
-        skip = count - limit
-        if skip < 0:
-            skip = 0
-        for r in self.metrics.find().skip(skip):
-            r.pop('_id', None)
-            recs.append(r)
-        return recs
+            return []
+        return self.images.get_metrics(system, limit)  # ,delay=False)
 
     def new_session(self, auth_string, system):
         """
@@ -320,14 +293,8 @@ class ImageMngr(object):
         """
         if not self.check_session(session, image['system']):
             raise OSError("Invalid Session")
-        query = {
-            'status': 'READY',
-            'system': image['system'],
-            'itype': image['itype'],
-            'tag': {'$in': [image['tag']]}
-        }
         self.update_states()
-        rec = self._images_find_one(query)
+        rec = self.images.get_image_by_tag(image)
         if rec is not None:
             if self._checkread(session, rec) is False:
                 return None
@@ -346,9 +313,8 @@ class ImageMngr(object):
             raise OSError("Invalid Session")
         if self._isasystem(system) is False:
             raise OSError("Invalid System")
-        query = {'status': 'READY', 'system': system}
         self.update_states()
-        records = self._images_find(query)
+        records = self.images.get_images(system)
         resp = []
         for record in records:
             if self._checkread(session, record):
@@ -363,27 +329,13 @@ class ImageMngr(object):
         """
         if not self.check_session(session, system):
             raise OSError("Invalid Session")
-        query = {'status': {'$ne': 'READY'}, 'system': system}
         self.update_states()
-        records = self._images_find(query)
+        records = self.images.get_images(system, status='NOT_READY')
         resp = []
         for record in records:
             resp.append({'status': record['status'],
                         'image': record['pulltag']})
         return resp
-
-    def _isready(self, image):
-        """Helper function to determine if an image is READY."""
-        query = {
-            'status': 'READY',
-            'system': image['system'],
-            'itype': image['itype'],
-            'tag': {'$in': [image['tag']]}
-        }
-        rec = self._images_find_one(query)
-        if rec is not None:
-            return True
-        return False
 
     def _pullable(self, rec):
         """
@@ -435,12 +387,6 @@ class ImageMngr(object):
         Creates a new image in mongo.  If the pull already exist it removes
         it first.
         """
-        # Clean out any existing records
-        for rec in self._images_find(image):
-            if rec['status'] == 'READY':
-                continue
-            else:
-                self._images_remove({'_id': rec['_id']})
         newimage = {
             'format': 'invalid',  # <ext4|squashfs|vfs>
             'arch': 'amd64',  # <amd64|...>
@@ -461,7 +407,7 @@ class ImageMngr(object):
             if param is 'tag':
                 continue
             newimage[param] = image[param]
-        self._images_insert(newimage)
+        self.images.insert_image(newimage)
         return newimage
 
     def pull(self, session, image, testmode=0):
@@ -470,14 +416,15 @@ class ImageMngr(object):
         Takes an auth token, a request object
         Optional: testmode={0,1,2} See below...
         """
+        system = image['system']
         request = {
-            'system': image['system'],
+            'system': system,
             'itype': image['itype'],
             'pulltag': image['tag']
         }
         self.logger.debug('Pull called Test Mode=%d', testmode)
-        if not self.check_session(session, request['system']):
-            self.logger.warn('Invalid session on system %s', request['system'])
+        if not self.check_session(session, system):
+            self.logger.warn('Invalid session on system %s', system)
             raise OSError("Invalid Session")
         # If a pull request exist for this tag
         #  check to see if it is expired or a failure, if so remove it
@@ -487,14 +434,8 @@ class ImageMngr(object):
         # find any pull record
         self.update_states()
         # let's lookup the active image
-        query = {
-            'status': 'READY',
-            'system': image['system'],
-            'itype': image['itype'],
-            'tag': {'$in': [image['tag']]}
-        }
-        rec = self._images_find_one(query)
-        for record in self._images_find(request):
+        rec = self.images.get_image_by_tag(image)
+        for record in self.images.get_images_by_pulltag(request):
             status = record['status']
             if status == 'READY' or status == 'SUCCESS':
                 continue
@@ -540,7 +481,7 @@ class ImageMngr(object):
             rec = self.new_pull_record(request)
             ident = rec['_id']
             self.logger.debug("ENQUEUEING Request")
-            self.update_mongo_state(ident, 'ENQUEUED')
+            self.images.update_image_state(ident, 'ENQUEUED')
             request['tag'] = request['pulltag']
             request['session'] = session
             self.logger.debug("Calling do pull with queue=%s",
@@ -551,61 +492,24 @@ class ImageMngr(object):
                 % (request['system'], request['tag'])
             self.logger.info(memo)
 
-            self.update_mongo(ident, {'last_pull': time()})
+            self.images.update_image_last_pull(ident)
 
         return rec
 
-    def update_mongo_state(self, ident, state, info=None):
-        """
-        Helper function to set the mongo state for an image with _id==ident
-        to state=state.
-        """
-        if state == 'SUCCESS':
-            state = 'READY'
-        set_list = {'status': state, 'status_message': ''}
-        if info is not None and isinstance(info, dict):
-            if 'heartbeat' in info:
-                set_list['last_heartbeat'] = info['heartbeat']
-            if 'message' in info:
-                set_list['status_message'] = info['message']
-        self._images_update({'_id': ident}, {'$set': set_list})
-
-    def add_tag(self, ident, system, tag):
-        """
-        Helper function to add a tag to an image.
-        ident is the mongo id (not image id)
-        """
-        # Remove the tag first
-        self.remove_tag(system, tag)
-        # see if tag isn't a list
-        rec = self._images_find_one({'_id': ident})
-        if rec is not None and 'tag' in rec and \
-                not isinstance(rec['tag'], (list)):
-            memo = 'Fixing tag for non-list %s %s' % (ident, str(rec['tag']))
-            self.logger.info(memo)
-            curtag = rec['tag']
-            self._images_update({'_id': ident}, {'$set': {'tag': [curtag]}})
-        self._images_update({'_id': ident}, {'$addToSet': {'tag': tag}})
-        return True
-
-    def remove_tag(self, system, tag):
-        """
-        Helper function to remove a tag to an image.
-        """
-        self._images_update({'system': system, 'tag': {'$in': [tag]}},
-                            {'$pull': {'tag': tag}}, multi=True)
-        return True
-
     def update_acls(self, ident, response):
-        self.logger.debug("Update ACLs called for %s %s", ident, str(response))
-        pullrec = self._images_find_one({'_id': ident})
+        self.logger.debug("Update ACLs called for %s %s", str(ident),
+                          str(response))
+        pullrec = self.images.get_image_by_id(ident)
         if pullrec is None:
-            self.logger.error('ERROR: Missing pull request (r=%s)',
+            self.logger.error('ERROR: Missing pull request acl (ident=%s)',
+                              str(ident))
+            self.logger.error('ERROR: Missing pull request acl (r=%s)',
                               str(response))
             return
         # Check that this image ident doesn't already exist for this system
-        rec = self._images_find_one({'id': response['id'], 'status': 'READY',
-                                    'system': pullrec['system']})
+        rec = self.images.get_image_by_imageid(response['id'],
+                                               pullrec['system'],
+                                               status='READY')
         if rec is None:
             # This means the image already existed, but we didn't have a
             # record of it.  That seems odd (it happens in tests).  Let's
@@ -613,8 +517,8 @@ class ImageMngr(object):
             msg = "WARNING: No image record found for an ACL update"
             self.logger.warn(msg)
             response['last_pull'] = time()
-            self.update_mongo(ident, response)
-            self.add_tag(ident, pullrec['system'], pullrec['pulltag'])
+            self.images.update_mongo(ident, response)
+            self.images.add_tag(ident, pullrec['system'], pullrec['pulltag'])
         else:
             updates = {
                 'userACL': response['userACL'],
@@ -623,8 +527,8 @@ class ImageMngr(object):
                 'last_pull': time()
             }
             self.logger.debug("Doing ACLs update")
-            self.update_mongo(rec['_id'], updates)
-            self._images_remove({'_id': ident})
+            self.images.update_mongo(rec['_id'], updates)
+            self.images.remove_image_by_id(ident)
 
     def complete_pull(self, ident, response):
         """
@@ -632,13 +536,14 @@ class ImageMngr(object):
         """
 
         self.logger.debug("Complete called for %s %s", ident, str(response))
-        pullrec = self._images_find_one({'_id': ident})
+        pullrec = self.images.get_image_by_id(ident)
         if pullrec is None:
             self.logger.warn('Missing pull request (r=%s)', str(response))
             return
         # Check that this image ident doesn't already exist for this system
-        rec = self._images_find_one({'id': response['id'],
-                                    'system': pullrec['system']})
+        rec = self.images.get_image_by_imageid(response['id'],
+                                               pullrec['system'],
+                                               status='READY')
         tag = pullrec['pulltag']
         if rec is not None:
             # So we already had this image.
@@ -648,46 +553,20 @@ class ImageMngr(object):
             update_rec = {
                 'last_pull': time()
             }
-            self.update_mongo(rec['_id'], update_rec)
+            self.images.update_mongo(rec['_id'], update_rec)
 
-            self._images_remove({'_id': ident})
+            self.images.remove_image_by_id(ident)
             # However it could be a new tag.  So let's update the tag
             try:
                 rec['tag'].index(response['tag'])
             except:
-                self.add_tag(rec['_id'], pullrec['system'], tag)
+                self.images.add_tag(rec['_id'], pullrec['system'], tag)
             return True
         else:
             response['last_pull'] = time()
-            self.update_mongo(ident, response)
-            self.add_tag(ident, pullrec['system'], tag)
-
-    def update_mongo(self, ident, resp):
-        """
-        Helper function to set the mongo values for an image with _id==ident.
-        """
-        setline = dict()
-        # This maps from the key name in the response to the
-        # key name used in mongo
-        mappings = {
-            'id': 'id',
-            'entrypoint': 'ENTRY',
-            'env': 'ENV',
-            'workdir': 'WORKDIR',
-            'last_pull': 'last_pull',
-            'userACL': 'userACL',
-            'groupACL': 'groupACL',
-            'private': 'private'
-        }
-        if 'private' in resp and resp['private'] is False:
-            resp['userACL'] = []
-            resp['groupACL'] = []
-
-        for key in mappings.keys():
-            if key in resp:
-                setline[mappings[key]] = resp[key]
-
-        self._images_update({'_id': ident}, {'$set': setline})
+            response['state'] = 'READY'
+            self.images.update_mongo(ident, response)
+            self.images.add_tag(ident, pullrec['system'], tag)
 
     def get_state(self, ident):
         """
@@ -695,22 +574,13 @@ class ImageMngr(object):
         Returns the state.
         """
         self.update_states()
-        rec = self._images_find_one({'_id': ident}, {'status': 1})
-        if rec is None:
-            return None
-        elif 'status' not in rec:
-            return None
-        return rec['status']
+        return self.images.get_state(ident)
 
     def update_states(self):
         """
         Cleanup failed transcations after a period
         """
-        for rec in self._images_find({'status': 'FAILURE'}):
-            nextpull = self.pullupdatetimeout + rec['last_pull']
-            # It it has been a while then let's clean up
-            if time() > nextpull:
-                self._images_remove({'_id': rec['_id']})
+        self.images.update_states()
 
     def autoexpire(self, session, system, testmode=0):
         """Auto expire images and do cleanup"""
@@ -720,19 +590,18 @@ class ImageMngr(object):
         # Cleanup - Lookup for things stuck in non-READY state
         self.update_states()
         removed = []
-        for rec in self._images_find({'status': {'$ne': 'READY'},
-                                     'system': system}):
+        for rec in self.images.get_images(system, status="NOT_READY"):
             if 'last_pull' not in rec:
                 self.logger.warning('Image missing last_pull for pulltag:' +
                                     rec['pulltag'])
                 continue
             if time() > rec['last_pull'] + self.pulltimeout:
                 removed.append(rec['_id'])
-                self._images_remove({'_id': rec['_id']})
+                self.images.remove_image_by_id(rec['_id'])
 
         expired = []
         # Look for READY images that haven't been pulled recently
-        for rec in self._images_find({'status': 'READY', 'system': system}):
+        for rec in self.images.get_images(system):
             if 'expiration' not in rec:
                 continue
             elif rec['expiration'] < time():
@@ -763,9 +632,9 @@ class ImageMngr(object):
         query = {
             'system': image['system'],
             'itype': image['itype'],
-            'tag': {'$in': [image['tag']]}
+            'tag': image['tag']
         }
-        rec = self._images_find_one(query)
+        rec = self.images.get_image_by_tag(query)
         if rec is None:
             return None
         ident = rec.pop('_id')
@@ -780,32 +649,6 @@ class ImageMngr(object):
 
         return True
 
-    @mongo_reconnect_reattempt
-    def _images_remove(self, *args, **kwargs):
-        """ Decorated function to remove images from mongo """
-        return self.images.remove(*args, **kwargs)
-
-    @mongo_reconnect_reattempt
-    def _images_update(self, *args, **kwargs):
-        """ Decorated function to updates images in mongo """
-        return self.images.update(*args, **kwargs)
-
-    @mongo_reconnect_reattempt
-    def _images_find(self, *args, **kwargs):
-        """ Decorated function to find images in mongo """
-        return self.images.find(*args, **kwargs)
-
-    @mongo_reconnect_reattempt
-    def _images_find_one(self, *args, **kwargs):
-        """ Decorated function to find one image in mongo """
-        return self.images.find_one(*args, **kwargs)
-
-    @mongo_reconnect_reattempt
-    def _images_insert(self, *args, **kwargs):
-        """ Decorated function to insert an image in mongo """
-        return self.images.insert(*args, **kwargs)
-
-    @mongo_reconnect_reattempt
     def _metrics_insert(self, *args, **kwargs):
         """ Decorated function to insert an image in mongo """
         if self.metrics is not None:
