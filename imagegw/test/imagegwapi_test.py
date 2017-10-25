@@ -98,7 +98,7 @@ class GWTestCase(unittest.TestCase):
                 break
             if r['status'] == 'FAILURE':
                 break
-            print '  %s...' % (r['status'])
+            print '  %3d %s...' % (count, r['status'])
             time.sleep(1)
             count = count - 1
         return rv
