@@ -48,7 +48,7 @@ class GWTestCase(unittest.TestCase):
         system = self.system
         self.imageDir = self.config['Platforms'][system]['ssh']['imageDir']
         self.type = "docker"
-        self.itag = "ubuntu:14.04"
+        self.itag = "alpine:latest"
         self.tag = urllib.quote(self.itag)
         self.urlreq = "%s/%s/%s" % (self.system, self.type, self.tag)
         # Need to switch to real munge tokens

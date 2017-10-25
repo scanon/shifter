@@ -55,7 +55,7 @@ class ImageMngrTestCase(unittest.TestCase):
         self.id = 'fakeid'
         self.tag2 = 'test2'
         self.tag3 = 'scanon/shanetest:latest'
-        self.public = 'index.docker.io/busybox:latest'
+        self.public = 'index.docker.io/alpine:latest'
         self.private = 'index.docker.io/scanon/shaneprivate:latest'
         self.format = 'squashfs'
         self.auth = 'good:user:user::100:100'

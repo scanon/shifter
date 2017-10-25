@@ -41,7 +41,7 @@ class ImageWorkerTestCase(unittest.TestCase):
         self.system = 'systema'
         self.itype = 'docker'
         self.tag = 'registry.services.nersc.gov/nersc-py:latest'
-        self.tag = 'ubuntu:latest'
+        self.tag = 'alpine:latest'
         self.tag = 'scanon/shanetest:latest'
         self.hash = \
             'b3491cdefcdb79a31ab7ddf1bbcf7c8eeff9b4f00cb83a0be513fb800623f9cf'
@@ -62,9 +62,9 @@ class ImageWorkerTestCase(unittest.TestCase):
         self.imageDir = idir
 
     def cleanup_cache(self):
-        for h in [self.hash, self.hash2, self.hash3]:
-            for ext in ['meta', 'squashfs']:
-                fp = '%s/%s.%s' % (self.imageDir, h, ext)
+        for f in os.listdir(self.imageDir):
+            if f.endswith('.meta') or f.endswith('.squashfs'):
+                fp = '%s/%s' % (self.imageDir, f)
                 if os.path.exists(fp):
                     os.remove(fp)
 
@@ -107,7 +107,7 @@ class ImageWorkerTestCase(unittest.TestCase):
         request = {
             'system': self.system,
             'itype': self.itype,
-            'tag': 'index.docker.io/ubuntu:latest'
+            'tag': 'index.docker.io/alpine:latest'
         }
         status = self.imageworker.pull_image(request, self.updater)
         self.assertTrue(status)
@@ -115,7 +115,6 @@ class ImageWorkerTestCase(unittest.TestCase):
         meta = request['meta']
         self.assertIn('id', meta)
         self.assertTrue(os.path.exists(request['expandedpath']))
-        return
 
     # Use the URL format of the location, like an alias
     def test_pull_image_url(self):
