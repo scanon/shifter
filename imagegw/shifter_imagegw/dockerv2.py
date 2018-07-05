@@ -491,7 +491,10 @@ class DockerV2Handle(object):
                     # there was a checksum mismatch, nuke the file
                     os.unlink(filename)
 
-            conn.request("GET", path, None, self.headers)
+            if path.find('verify') > 0:
+                conn.request("GET", path, None, {})
+            else:
+                conn.request("GET", path, None, self.headers)
             resp1 = conn.getresponse()
             location = resp1.getheader('location')
             if resp1.status == 200:
