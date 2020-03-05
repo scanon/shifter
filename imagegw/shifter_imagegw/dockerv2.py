@@ -76,8 +76,8 @@ def _verify_manifest_signature(manifest, text, digest):
     """
     Verify the manifest digest and signature
     """
-    format_length = None
-    format_tail = None
+    format_length = len(text)
+    format_tail = ''
 
     if 'signatures' in manifest:
         for sig in manifest['signatures']:
@@ -98,7 +98,6 @@ def _verify_manifest_signature(manifest, text, digest):
     if hashlib.sha256(message).hexdigest() != digest:
         msg = 'Failed to match manifest digest to downloaded content'
         raise ValueError(msg)
-
     return True
 
 
@@ -171,6 +170,7 @@ def _construct_image_metadata(manifest):
         raise ValueError('Invalid manifest')
 
     req_keys = ('schemaVersion', 'fsLayers', 'history', 'signatures')
+    req_keys = ('schemaVersion', 'fsLayers', 'history')
     if any([x for x in req_keys if x not in manifest]):
         raise ValueError('Manifest in incorrect format')
 
