@@ -940,20 +940,11 @@ def test_import(ctx: Conf):
     """
     Basic import test
     """
-    # Use defaults for format, arch, os, ostcount, replication
-    pr = {
-        'system': ctx.system,
-        'itype': ctx.itype,
-        'tag': ctx.tag,
-        'filepath': '/images/test/test.squashfs',
-        'format': 'squashfs',
-        'userACL': [],
-        'groupACL': []
-    }
-    # Do the pull
+    # Do the import
+    fp = '/images/test/test.squashfs'
     session = ctx.session
     ctx.mtm.workers.op = "import"
-    rec = ctx.mtm.mngrimport(session, pr)
+    rec = ctx.mtm.mngrimport(session, ctx.itype, ctx.tag, fp, 'squashfs', [], [])
     assert rec
     id = rec['_id']
     # Confirm record
@@ -963,7 +954,7 @@ def test_import(ctx: Conf):
     # Track through transistions
     state = time_wait(ctx, id)
     assert state == 'READY'
-    imagerec = ctx.mtm.lookup(session, pr['itype'], pr['tag'])
+    imagerec = ctx.mtm.lookup(session, ctx.itype, ctx.tag)
     assert 'ENTRY' in imagerec
     assert 'ENV' in imagerec
 

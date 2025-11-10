@@ -515,30 +515,38 @@ class ImageMngr(object):
 
         return rec
 
-    def mngrimport(self, session: Session, image: dict):
+    def mngrimport(self,
+                   session: Session,
+                   itype: str,
+                   tag: str,
+                   filepath: str,
+                   format: str,
+                   userACL: list[int],
+                   groupACL: list[int]) -> dict:
         """
         import the image directly from a file
         Only for allowed users
         Takes an auth token, a request object
         """
         meta = {}
-        fp = image['filepath']
         request = {
-            'system': image['system'],
-            'itype': image['itype'],
-            'pulltag': image['tag'],
-            'filepath': image['filepath'],
-            'format': image['format'],
-            'meta': meta
+            'system': session.system,
+            'itype': itype,
+            'pulltag': tag,
+            'filepath': filepath,
+            'format': format,
+            'meta': meta,
+            'userACL': userACL,
+            'groupACL': groupACL
         }
-        logging.debug(f'mngrmport called for file {fp}')
+        logging.debug(f'mngrmport called for file {filepath}')
         # Skip checks about previous requests for now
         # Future work could check the fasthash and
         # not import if they're the same
         q = {
-            'system': image['system'],
-            'itype': image['itype'],
-            'pulltag': image['tag']
+            'system': session.system,
+            'itype': itype,
+            'pulltag': tag
         }
         rec = self._images_find_one(q)
         if not self._pullable(rec):
@@ -559,10 +567,10 @@ class ImageMngr(object):
                       "{request['system']}")
         ir = ImportRequest(self.config,
                            session.system,
-                           image['tag'],
+                           tag,
                            ident,
                            session,
-                           image['filepath'])
+                           filepath)
         self.workers.submit(ir)
 
         memo = "import request queued " \

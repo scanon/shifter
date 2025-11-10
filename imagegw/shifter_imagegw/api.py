@@ -223,20 +223,21 @@ async def doimport(system: str, imgtype: str, tag: str, data: ImportImage,
 
     memo = f"import system={system} imgtype={imgtype} tag={tag}"
     logging.debug(memo)
-    i = {'system': system, 'itype': imgtype, 'tag': tag}
     # Check for path to import file
-    i['filepath'] = data.filepath
-    i['format'] = data.format
+    filepath = data.filepath
+    format = data.format
 
     # Check for list of allowed users or groups
+    userACL = None
+    groupACL = None
     if data.allowed_uids:
         # Convert to integers
-        i['userACL'] = list(map(lambda x: int(x),
-                            data.allowed_uids.split(',')))
+        userACL = list(map(lambda x: int(x),
+                           data.allowed_uids.split(',')))
     if data.allowed_gids:
         # Convert to integers
-        i['groupACL'] = list(map(lambda x: int(x),
-                             data.allowed_gids.split(',')))
+        groupACL = list(map(lambda x: int(x),
+                            data.allowed_gids.split(',')))
     if not config.ImportUsers or config.ImportUsers.lower() == "none":
         raise HTTPException(status_code=403,
                             detail="User image import from file disabled.")
@@ -252,7 +253,8 @@ async def doimport(system: str, imgtype: str, tag: str, data: ImportImage,
             if user not in iusers:
                 msg = f"User {user} not allowed to import image from file."
                 raise AuthenticationError(msg)
-        rec = mgr.mngrimport(session, i)
+        rec = mgr.mngrimport(session, imgtype, tag, filepath, format,
+                             userACL, groupACL)
     except AuthenticationError as ex:
         logging.warning(f"Auth error {str(ex)}")
         raise HTTPException(status_code=401, detail='Authentication Error')
