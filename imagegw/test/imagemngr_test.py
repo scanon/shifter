@@ -944,7 +944,8 @@ def test_import(ctx: Conf):
     fp = '/images/test/test.squashfs'
     session = ctx.session
     ctx.mtm.workers.op = "import"
-    rec = ctx.mtm.mngrimport(session, ctx.itype, ctx.tag, fp, 'squashfs', [], [])
+    rec = ctx.mtm.mngrimport(session, ctx.itype, ctx.tag,
+                             fp, 'squashfs', [], [])
     assert rec
     id = rec['_id']
     # Confirm record
@@ -967,7 +968,7 @@ def test_acl_update_denied(ctx: Conf):
 
 def test_expire_local(ctx: Conf):
     record = good_record(ctx)
-    system = 'systemb'
+    system = 'systema'
     record['system'] = system
     # Create a fake record in mongo
     id = ctx.images.insert_one(record).inserted_id
@@ -976,8 +977,7 @@ def test_expire_local(ctx: Conf):
     file, metafile = create_fakeimage(ctx, system, record['id'],
                                       ctx.format)
     session = ctx.admin_session
-    er = {'system': system, 'tag': ctx.tag, 'itype': ctx.itype}
-    rec = ctx.m.expire(session, er)
+    rec = ctx.m.expire(session, ctx.itype, ctx.tag)
     assert rec
     time.sleep(2)
     state = ctx.m.get_state(id)
@@ -995,8 +995,7 @@ def test_expire_noadmin(ctx: Conf):
     file, metafile = create_fakeimage(ctx, ctx.system, record['id'],
                                       ctx.format)
     session = ctx.session
-    er = {'system': ctx.system, 'tag': ctx.tag, 'itype': ctx.itype}
-    _ = ctx.m.expire(session, er)
+    _ = ctx.m.expire(session, ctx.itype, ctx.tag)
     # assert rec
     time.sleep(2)
     state = ctx.m.get_state(id)

@@ -294,13 +294,12 @@ async def expire(system: str, imgtype: str, tag: str,
         tag = f'{tag}:latest'
 
     auth = authentication
-    i = {'system': system, 'itype': imgtype, 'tag': tag}
     memo = f"expire system={system} imgtype={imgtype} tag={tag}"
     logging.debug(memo)
     resp = None
     try:
         session = authenticate(config, auth, system)
-        resp = mgr.expire(session, i)
+        resp = mgr.expire(session, imgtype, tag)
     except AuthenticationError as ex:
         logging.warning(f"Auth error {str(ex)}")
         raise HTTPException(status_code=401, detail='Authentication Error')

@@ -797,24 +797,24 @@ class ImageMngr(object):
         logging.info("expire request queued "
                      f"s={rec['system']} tag={ident}")
 
-    def expire(self, session: Session, image: dict):
+    def expire(self, session: Session, itype: str, tag: str) -> bool | None:
         """Expire an image.  (Not Implemented)"""
         if not self._isadmin(session):
             return False
         query = {
-            'system': image['system'],
-            'itype': image['itype'],
-            'tag': {'$in': [image['tag']]}
+            'system': session.system,
+            'itype': itype,
+            'tag': {'$in': [tag]}
         }
         rec = self._images_find_one(query)
         if rec is None:
             return None
         ident = rec.pop('_id')
         memo = "Calling do expire with " \
-               f"queue={image['system']} id={ident}"
+               f"queue={session.system} id={ident}"
         logging.debug(memo)
         er = ExpireRequest(self.config,
-                           rec['system'],
+                           session.system,
                            rec['tag'],
                            rec['id'],
                            ident)
@@ -822,7 +822,7 @@ class ImageMngr(object):
         self.workers.submit(er)
 
         memo = "expire request queued " \
-               f"s={image['system']} tag={image['tag']}"
+               f"s={session.system} tag={tag}"
         logging.info(memo)
 
         return True
