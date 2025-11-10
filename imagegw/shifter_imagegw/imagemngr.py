@@ -61,6 +61,17 @@ def mongo_reconnect_reattempt(call):
     return _mongo_reconnect_safe
 
 
+def _compare_list(a: list | None, b: list | None):
+    """"
+    return True if everything matches
+    return False if anything is different
+    """
+
+    if a is None or b is None:
+        return False
+    return sorted(a) == sorted(b)
+
+
 class ImageMngr(object):
     """
     This class handles most of the backend work for the image gateway.
@@ -200,39 +211,6 @@ class ImageMngr(object):
                                             60 * (int(hours) + 24 * int(days)))
         self._images_update({'_id': ident}, {'$set': {'expiration': expire}})
         return expire
-
-    def _make_acl(self, acllist: dict, id: str):
-        if id not in acllist:
-            acllist.append(id)
-        return acllist
-
-    def _compare_list(self, a: dict, b: dict, key: str):
-        """"
-        look at the key element of two objects
-        and compare the list of ids.
-
-        return True if everything matches
-        return False if anything is different
-        """
-
-        # If the key isn't in the objects or
-        # something else fails, then it must
-        # have changed.
-        try:
-            if key not in a:
-                return False
-            if key not in b:
-                return False
-        except Exception:
-            return True
-        aitems = a[key]
-        bitems = b[key]
-        if len(aitems) != len(bitems):
-            return False
-        for item in aitems:
-            if item not in bitems:
-                return False
-        return True
 
     @cached(cache=LFUCache(maxsize=128), info=True)
     def _add_metrics(self,
@@ -387,7 +365,7 @@ class ImageMngr(object):
 
         return False
 
-    def new_pull_record(self, image: dict):
+    def new_pull_record(self, image: dict) -> dict:
         """
         Creates a new image in mongo.  If the pull already exist it removes
         it first.
@@ -399,14 +377,13 @@ class ImageMngr(object):
             else:
                 self._images_remove({'_id': rec['_id']})
         newimage = {
-            'format': 'invalid',  # <ext4|squashfs|vfs>
+            'format': self.config.DefaultImageFormat,
             'userACL': [],
             'groupACL': [],
             'private': None,
             'tag': [],
             'status': 'INIT'
         }
-        newimage['format'] = self.config.DefaultImageFormat
         for param in image:
             if param == 'tag':
                 continue
@@ -442,36 +419,31 @@ class ImageMngr(object):
         # See if there are any existing pull requests
         # that match this image that aren't in a
         # ready state
-        request = {
+        q = {
             'system': session.system,
             'itype': itype,
-            'pulltag': tag
+            'pulltag': tag,
+            'status': {'$nin': ['READY', 'SUCCESS']}
         }
-        for record in self._images_find(request):
-            status = record['status']
-            if status == 'READY' or status == 'SUCCESS':
-                continue
-            rec = record
-            break
+        pull_rec = self._images_find_one(q)
+        if pull_rec:
+            rec = pull_rec
+
         inflight = False
         recent = False
-        if rec is not None and rec['status'] != 'READY':
+        if rec and rec['status'] != 'READY':
             inflight = True
-        elif rec is not None:
+        elif rec:
             # if an image has been pulled in the last 60 seconds
             # let's consider that "recent"
             if (time() - rec['last_pull']) < 10:
                 recent = True
-        request['userACL'] = []
-        request['groupACL'] = []
-        if userACL and userACL != []:
-            request['userACL'] = self._make_acl(userACL,
-                                                session.uid)
-        if groupACL and groupACL != []:
-            request['groupACL'] = self._make_acl(groupACL,
-                                                 session.gid)
-        if self._compare_list(request, rec, 'userACL') and \
-                self._compare_list(request, rec, 'groupACL'):
+        if userACL != [] and session.uid not in userACL:
+            userACL.append(session.uid)
+        if groupACL != [] and session.gid not in groupACL:
+            groupACL.append(session.gid)
+        if rec and _compare_list(rec.get('userACL'), userACL) and \
+                _compare_list(rec.get('groupACL'), groupACL):
             acl_changed = False
         else:
             logging.debug("No ACL change detected.")
@@ -490,25 +462,30 @@ class ImageMngr(object):
 
         if update:
             logging.debug("Creating New Pull Record")
+            request = {
+                'system': session.system,
+                'itype': itype,
+                'pulltag': tag,
+                'userACL': userACL,
+                'groupACL': groupACL
+            }
             rec = self.new_pull_record(request)
             ident = rec['_id']
             logging.debug("PENDING Request")
             self.update_mongo_state(ident, 'PENDING')
-            request['tag'] = request['pulltag']
-            request['session'] = session
             logging.debug("Calling do pull with queue="
                           f"{request['system']}")
             pr = PullRequest(self.config,
                              session.system,
-                             request['tag'],
+                             tag,
                              ident,
                              session,
-                             useracl=request['userACL'],
-                             groupacl=request['groupACL'])
+                             useracl=userACL,
+                             groupacl=groupACL)
             self.workers.submit(pr)
 
             memo = "pull request queued " \
-                   f"s={request['system']} tag={request['tag']}"
+                   f"s={session.system} tag={tag}"
             logging.info(memo)
 
             self.update_mongo(ident, {'last_pull': time()})

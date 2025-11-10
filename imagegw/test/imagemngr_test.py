@@ -571,7 +571,7 @@ def test_repull(ctx: Conf):
     id = ctx.images.insert_one(record).inserted_id
     assert id
     session = ctx.session
-    pull = ctx.m.pull(session, ctx.itype, ctx.tag, None, None)
+    pull = ctx.m.pull(session, ctx.itype, ctx.tag, [], [])
     assert pull
     assert pull['status'] == 'READY'
 
@@ -592,7 +592,7 @@ def test_repull_pr(ctx: Conf):
 
     # Now let's try pulling it
     session = ctx.session
-    pull = ctx.m.pull(session, ctx.itype, ctx.tag, None, None)
+    pull = ctx.m.pull(session, ctx.itype, ctx.tag, [], [])
     assert pull
     assert pull['status'] == 'READY'
 
@@ -613,7 +613,7 @@ def test_repull_pr_pulling(ctx: Conf):
 
     # Now let's try pulling it
     session = ctx.session
-    pull = ctx.m.pull(session, ctx.itype, ctx.tag, None, None)
+    pull = ctx.m.pull(session, ctx.itype, ctx.tag, [], [])
     assert pull
     assert pull['status'] == 'PULLING'
 
@@ -1183,7 +1183,7 @@ def test_pull_multiple_tags(ctx: Conf):
     """
     # Do the pull
     session = ctx.session
-    rec = ctx.m.pull(session, ctx.itype, ctx.public, None, None)
+    rec = ctx.m.pull(session, ctx.itype, ctx.public, [], [])
     id = rec['_id']
     assert rec
     # Confirm record
@@ -1197,7 +1197,7 @@ def test_pull_multiple_tags(ctx: Conf):
 
     # Now reppull with a different tag for the same image
     newtag = ctx.public.replace('latest', '1')
-    rec = ctx.m.pull(session, ctx.itype, newtag, None, None)
+    rec = ctx.m.pull(session, ctx.itype, newtag, [], [])
     id = rec['_id']
     assert rec
     # Track through transistions

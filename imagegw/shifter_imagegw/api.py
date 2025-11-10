@@ -177,8 +177,8 @@ async def pull(system: str, imgtype: str, tag: str,
     logging.debug(f'data: {str(data)}')
 
     logging.debug(f"pull system={system} imgtype={imgtype} tag={tag}")
-    userACL = None
-    groupACL = None
+    userACL = []
+    groupACL = []
     if data and data.allowed_uids:
         # Convert to integers
         userACL = list(map(lambda x: int(x),
