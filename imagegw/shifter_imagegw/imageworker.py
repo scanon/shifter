@@ -34,6 +34,15 @@ from shifter_imagegw.config import Config
 from shifter_imagegw.models import Session
 
 
+class UpdateMessage():
+    def __init__(self, ident: str, state: str, message: str, response=None):
+        self.ident = ident
+        self.state = state
+        self.heartbeat = time()
+        self.message = message
+        self.response = response
+
+
 class Updater(object):
     """
     This is a helper class to update the status for the request.
@@ -46,19 +55,14 @@ class Updater(object):
     def update_status(self, state: str, message: str, response=None):
         """ update the status including the heartbeat and message """
         if self.update_method:
-            metadata = {'heartbeat': time(),
-                        'message': message,
-                        'response': response}
-            self.update_method(ident=self.ident, state=state, meta=metadata)
+            msg = UpdateMessage(self.ident, state, message, response)
+            self.update_method(msg)
 
     def failed(self, e):
         logging.error(f"Failure: {e}")
         if self.update_method:
-            metadata = {'heartbeat': time(),
-                        'message': "Operation Failed",
-                        'response': {}}
-            self.update_method(ident=self.ident, state="FAILURE",
-                               meta=metadata)
+            msg = UpdateMessage(self.ident, "FAILURE", "Operation Failed")
+            self.update_method(msg)
 
 
 class WorkerThreads(object):
@@ -82,11 +86,11 @@ class WorkerThreads(object):
     def get_updater_queue(self):
         return self.updater_queue
 
-    def updater(self, ident, state, meta):
+    def updater(self, msg: UpdateMessage):
         """
         Updater function: This just post a message to a queue.
         """
-        self.updater_queue.put({'id': ident, 'state': state, 'meta': meta})
+        self.updater_queue.put(msg)
 
     def submit(self, req: object):
         # We have to override the updater method here since we
@@ -105,7 +109,7 @@ class AsyncRequest(object):
     """
     clean_items = []
 
-    def _null_func(self, **kwargs):
+    def _null_func(self, *args, **kwargs):
         pass
 
     def _cleanup_temporary(self):

@@ -10,6 +10,7 @@ from random import randint
 from shifter_imagegw.config import Config
 from shifter_imagegw.models import Session
 from shifter_imagegw.imageworker import WorkerThreads
+from shifter_imagegw.imageworker import UpdateMessage
 from shifter_imagegw.imagemngr import ImageMngr
 
 
@@ -44,11 +45,8 @@ class mock_worker(WorkerThreads):
     def set_mode(self, mode):
         self.mode = mode
 
-    def updater(self, ident, state, meta):
-        """
-        Updater function: This just post a message to a queue.
-        """
-        self.q.put({'id': ident, 'state': state, 'meta': meta})
+    def updater(self, msg):
+        self.q.put(msg)
 
     def pull(self, _, updater):
         if self.mode == 2:
@@ -844,8 +842,7 @@ def test_pull_public_acl_token(ctx: Conf):
     """
     tokens = read_tokens()
     if tokens is None:
-        print("Skipping private pull tests")
-        return
+        pytest.skip("no tokens.cfg available")
     # Use defaults for format, arch, os, ostcount, replication
     userACL = [1001, 1002]
     groupACL = [1003, 1004]
@@ -879,8 +876,7 @@ def test_pull_acl(ctx: Conf):
     # Do the pull
     tokens = read_tokens()
     if tokens is None:
-        print("Skipping private pull tests")
-        return
+        pytest.skip("no tokens.cfg available")
 
     session = ctx.session
     session['tokens'] = tokens
@@ -1143,11 +1139,8 @@ def test_status_thread(ctx: Conf):
     record['status'] = 'PULLING'
     rec = ctx.images.insert_one(record).inserted_id
     id = record['_id']
-    m = {
-        'id': id,
-        'state': 'READY',
-        'meta': {'response': {'id': 'fakeid'}}
-    }
+    resp = {'id': 'fakeid'}
+    m = UpdateMessage(id, 'READY', "test", resp)
     # Create a fake response and queue it
     ctx.m.status_queue.put(m)
     ctx.m.status_queue.put('stop')
@@ -1160,15 +1153,11 @@ def test_status_thread(ctx: Conf):
     record['pulltag'] = 'bogus'
     record['status'] = 'PULLING'
     id = ctx.images.insert_one(record).inserted_id
-    m = {
-        'id': id,
-        'state': 'READY',
-        'meta': {'response': {'id': 'fakeid'}}
-    }
-    m['meta']['response']['meta_only'] = True
-    m['meta']['response']['userACL'] = 1
-    m['meta']['response']['groupACL'] = 1
-    m['meta']['response']['private'] = True
+    resp['meta_only'] = True
+    resp['userACL'] = 1
+    resp['groupACL'] = 1
+    resp['private'] = True
+    m = UpdateMessage(id, 'READY', "test", resp)
     ctx.m.status_queue.put(m)
     ctx.m.status_queue.put('stop')
     ctx.m.status_thread(ctx.config)

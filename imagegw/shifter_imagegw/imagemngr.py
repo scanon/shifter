@@ -31,7 +31,7 @@ import logging
 from time import time, sleep
 from pymongo import MongoClient
 import pymongo.errors
-from shifter_imagegw.imageworker import WorkerThreads
+from shifter_imagegw.imageworker import UpdateMessage, WorkerThreads
 from shifter_imagegw.imageworker import PullRequest
 from shifter_imagegw.imageworker import ImportRequest
 from shifter_imagegw.imageworker import ExpireRequest
@@ -133,20 +133,19 @@ class ImageMngr(object):
             if message == 'stop':
                 logging.info("Shutting down Status Thread")
                 break
-            ident = message['id']
-            state = message['state']
-            meta = message['meta']
+            ident = message.ident
+            state = message.state
             # TODO: Handle a failed expire
             if state == "FAILURE":
                 logging.warning(f"Operation failed for {ident}")
 
             # A response message
             if state != 'READY':
-                self.update_mongo_state(ident, state, meta)
+                self.update_mongo_state(ident, state, message)
                 continue
-            if 'response' in meta and meta['response']:
-                response = meta['response']
-                logging.debug(response)
+
+            if isinstance(message.response, dict):
+                response = message.response
                 if 'meta_only' in response:
                     logging.debug('Updating ACLs')
                     self.update_acls(ident, response)
@@ -557,7 +556,7 @@ class ImageMngr(object):
         return rec
 
     def update_mongo_state(self, ident: str, state: str,
-                           info: dict | None = None):
+                           info: UpdateMessage | None = None):
         """
         Helper function to set the mongo state for an image with _id==ident
         to state=state.
@@ -565,11 +564,10 @@ class ImageMngr(object):
         if state == 'SUCCESS':
             state = 'READY'
         set_list = {'status': state, 'status_message': ''}
-        if info is not None and isinstance(info, dict):
-            if 'heartbeat' in info:
-                set_list['last_heartbeat'] = info['heartbeat']
-            if 'message' in info:
-                set_list['status_message'] = info['message']
+        if info:
+            set_list['last_heartbeat'] = info.heartbeat
+            set_list['status_message'] = info.message
+
         self._images_update({'_id': ident}, {'$set': set_list})
 
     def add_tag(self, ident: str, system: str, tag):
@@ -605,7 +603,7 @@ class ImageMngr(object):
             logging.error('ERROR: Missing pull request resp=',
                           f'{str(response)}')
             return
-        # Check that this image ident doesn't already exist for this system
+        # Check that this image id doesn't already exist for this system
         rec = self._images_find_one({'id': response['id'], 'status': 'READY',
                                     'system': pullrec['system']})
         if rec is None:
@@ -627,9 +625,8 @@ class ImageMngr(object):
                 'last_pull': time()
             }
             logging.debug("Doing ACLs update")
-            response['last_pull'] = time()
-            response['status'] = 'READY'
             self.update_mongo(rec['_id'], updates)
+            # Remove the pull request record
             self._images_remove({'_id': ident})
 
     def complete_pull(self, ident: str, response: dict):
@@ -647,7 +644,7 @@ class ImageMngr(object):
                                      'system': pullrec['system'],
                                      'status': 'READY'})
         tag = pullrec['pulltag']
-        if rec is not None:
+        if rec:
             # So we already had this image.
             # Let's delete the pull record.
             # TODO: update the pull time of the matching id
@@ -663,7 +660,6 @@ class ImageMngr(object):
                 rec['tag'].index(response['tag'])
             except ValueError:
                 self.add_tag(rec['_id'], pullrec['system'], tag)
-            return True
         else:
             response['last_pull'] = time()
             response['status'] = 'READY'
