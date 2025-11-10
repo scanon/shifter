@@ -143,23 +143,19 @@ class ImageMngr(object):
                     self.complete_pull(ident, response)
                 logging.debug('meta={str(response)}')
 
-    def _isadmin(self, session: Session, system: str | None = None):
+    def _isadmin(self, session: Session):
         """
         Check if this is an admin user.
         Returns true if is an admin or false if not.
         """
-        if not self.platforms[system].admins:
+        if not self.platforms[session.system].admins:
             return False
-        admins = self.platforms[system].admins
+        admins = self.platforms[session.system].admins
         user = session.user
         if user in admins:
             logging.debug(f'user {user} is an admin')
             return True
         return False
-
-    def _isasystem(self, system: str):
-        """Check if system is a valid platform."""
-        return bool(system in self.systems)
 
     def _checkread(self, session: Session, rec: dict):
         """
@@ -241,7 +237,6 @@ class ImageMngr(object):
     @cached(cache=LFUCache(maxsize=128), info=True)
     def _add_metrics(self,
                      session: Session,
-                     system: str,
                      itype: str,
                      tag: str,
                      id: str):
@@ -255,7 +250,7 @@ class ImageMngr(object):
             r = {
                 'user': session.user,
                 'uid': session.uid,
-                'system': system,
+                'system': session.system,
                 'type': itype,
                 'tag': tag,
                 'id': id,
@@ -265,12 +260,12 @@ class ImageMngr(object):
         except Exception:
             logging.warning('Failed to log lookup.')
 
-    def get_metrics(self, session: Session, system: str, limit: int):
+    def get_metrics(self, session: Session, limit: int):
         """
         Return the last <limit> lookup records.
         """
         recs = []
-        if not self._isadmin(session, system):
+        if not self._isadmin(session):
             return recs
         if self.metrics is None:
             return recs
@@ -286,7 +281,6 @@ class ImageMngr(object):
     @cached(cache=TTLCache(maxsize=100, ttl=60), info=True)
     def lookup(self,
                session: Session,
-               system: str,
                itype: str,
                tag: str
                ):
@@ -294,6 +288,7 @@ class ImageMngr(object):
         Lookup an image.
         Image is dictionary with system,itype and tag defined.
         """
+        system = session.system
         query = {
             'status': 'READY',
             'system': system,
@@ -309,20 +304,17 @@ class ImageMngr(object):
 
         if rec and self.metrics is not None:
             self._add_metrics(session,
-                              system,
                               itype,
                               tag,
                               rec['id'])
         return rec
 
-    def imglist(self, session: Session, system: str):
+    def imglist(self, session: Session):
         """
         list images for a system.
         Image is dictionary with system defined.
         """
-        if self._isasystem(system) is False:
-            raise OSError("Invalid System")
-        query = {'status': 'READY', 'system': system}
+        query = {'status': 'READY', 'system': session.system}
         self.update_states()
         records = self._images_find(query)
         resp = []
@@ -332,12 +324,12 @@ class ImageMngr(object):
         # verify access
         return resp
 
-    def show_queue(self, session: Session, system: str):
+    def show_queue(self, session: Session):
         """
         list queue for a system.
         Image is dictionary with system defined.
         """
-        query = {'status': {'$ne': 'READY'}, 'system': system}
+        query = {'status': {'$ne': 'READY'}, 'system': session.system}
         self.update_states()
         records = self._images_find(query)
         resp = []
@@ -571,7 +563,8 @@ class ImageMngr(object):
         self.update_mongo(ident, {'last_pull': time()})
         return rec
 
-    def update_mongo_state(self, ident: str, state: str, info: dict | None = None):
+    def update_mongo_state(self, ident: str, state: str,
+                           info: dict | None = None):
         """
         Helper function to set the mongo state for an image with _id==ident
         to state=state.
@@ -738,10 +731,11 @@ class ImageMngr(object):
             if time() > nextpull:
                 self._images_remove({'_id': rec['_id']})
 
-    def autoexpire(self, session: Session, system: str):
+    def autoexpire(self, session: Session):
         """Auto expire images and do cleanup"""
         # While this should be safe, let's restrict this to admins
-        if not self._isadmin(session, system):
+        system = session.system
+        if not self._isadmin(session):
             return False
         # Cleanup - Lookup for things stuck in non-READY state
         self.update_states()
@@ -789,7 +783,7 @@ class ImageMngr(object):
 
     def expire(self, session: Session, image: dict):
         """Expire an image.  (Not Implemented)"""
-        if not self._isadmin(session, image['system']):
+        if not self._isadmin(session):
             return False
         query = {
             'system': image['system'],

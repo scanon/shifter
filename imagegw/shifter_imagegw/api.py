@@ -93,7 +93,7 @@ async def imglist(system: str, authentication: str = Header(None)):
     logging.debug(f"list system={system}")
     try:
         session = authenticate(config, auth, system)
-        records = mgr.imglist(session, system)
+        records = mgr.imglist(session)
         if records is None:
             raise HTTPException(status_code=404, detail='image not found')
     except AuthenticationError as ex:
@@ -123,7 +123,7 @@ async def lookup(system: str, imgtype: str, tag: str,
     logging.debug(memo)
     try:
         session = authenticate(config, auth, system)
-        rec = mgr.lookup(session, system, imgtype, tag)
+        rec = mgr.lookup(session, imgtype, tag)
     except AuthenticationError as ex:
         logging.warning(f"Auth error {str(ex)}")
         raise HTTPException(status_code=401, detail='Authentication Error')
@@ -148,7 +148,7 @@ async def metrics(system: str, limit: int = Query(10),
     logging.debug(memo)
     try:
         session = authenticate(config, auth, system)
-        recs = mgr.get_metrics(session, system, limit)
+        recs = mgr.get_metrics(session, limit)
     except AuthenticationError as ex:
         logging.warning(f"Auth error {str(ex)}")
         raise HTTPException(status_code=401, detail='Authentication Error')
@@ -272,7 +272,7 @@ async def autoexpire(system: str, authentication: str = Header(None)):
     try:
         session = authenticate(config, auth, system)
         logging.debug(session)
-        resp = mgr.autoexpire(session, system)
+        resp = mgr.autoexpire(session)
     except AuthenticationError as ex:
         logging.warning(f"Auth error {str(ex)}")
         raise HTTPException(status_code=401, detail='Authentication Error')
@@ -317,7 +317,7 @@ async def queue(system: str, authentication: str = Header(None)):
     auth = authentication
     try:
         session = authenticate(config, auth, system)
-        records = mgr.show_queue(session, system)
+        records = mgr.show_queue(session)
     except Exception as ex:
         logging.exception('Exception in queue')
         raise HTTPException(status_code=404, detail=str(ex))

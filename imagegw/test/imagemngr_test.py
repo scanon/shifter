@@ -251,16 +251,16 @@ def read_tokens():
 #  Tests
 #
 def test_noadmin(ctx):
-    s = ctx.session
-    assert s
-    resp = ctx.m._isadmin(s, ctx.system)
+    session = ctx.session
+    assert session
+    resp = ctx.m._isadmin(session)
     assert resp is False
 
 
 def test_admin(ctx):
-    s = ctx.admin_session
-    assert s
-    resp = ctx.m._isadmin(s, ctx.system)
+    session = ctx.admin_session
+    assert session
+    resp = ctx.m._isadmin(session)
     assert resp is True
 
 
@@ -365,7 +365,7 @@ def test_add_remove_withtag(ctx):
     i = ctx.query.copy()
     status = ctx.m.add_tag(id, ctx.system, 'testtag')
     assert status is True
-    rec = ctx.m.lookup(session, i['system'], i['itype'], i['tag'])
+    rec = ctx.m.lookup(session, i['itype'], i['tag'])
     assert rec
     assert ctx.tag in rec['tag']
     assert 'testtag' in rec['tag']
@@ -485,7 +485,7 @@ def test_lookup(ctx):
     ctx.images.insert_one(record).inserted_id
     i = ctx.query.copy()
     session = ctx.session
-    lup = ctx.m.lookup(session, i['system'], i['itype'], i['tag'])
+    lup = ctx.m.lookup(session, i['itype'], i['tag'])
     assert 'status' in lup
     assert '_id' in lup
     assert ctx.m.get_state(lup['_id']) == 'READY'
@@ -494,7 +494,7 @@ def test_lookup(ctx):
     assert 'expiration' in r
     assert r['expiration'] > time.time()
     i['tag'] = 'bogus'
-    lup = ctx.m.lookup(session, i['system'], i['itype'], i['tag'])
+    lup = ctx.m.lookup(session, i['itype'], i['tag'])
     assert lup is None
 
 
@@ -506,7 +506,7 @@ def test_lookup_acl(ctx):
     id = ctx.images.insert_one(record).inserted_id
     i = ctx.query.copy()
     session = ctx.session
-    lup = ctx.m.lookup(session, i['system'], i['itype'], i['tag'])
+    lup = ctx.m.lookup(session, i['itype'], i['tag'])
     assert not lup
     ctx.images.delete_one({'_id': id})
 
@@ -518,7 +518,7 @@ def test_lookup_acl(ctx):
     id = ctx.images.insert_one(record).inserted_id
     i = ctx.query.copy()
     session = ctx.session
-    lup = ctx.m.lookup(session, i['system'], i['itype'], i['tag'])
+    lup = ctx.m.lookup(session, i['itype'], i['tag'])
     assert lup
     ctx.images.delete_one({'_id': id})
 
@@ -531,7 +531,7 @@ def test_lookup_acl(ctx):
     id = ctx.images.insert_one(record).inserted_id
     i = ctx.query.copy()
     session = ctx.session
-    lup = ctx.m.lookup(session, i['system'], i['itype'], i['tag'])
+    lup = ctx.m.lookup(session, i['itype'], i['tag'])
     assert lup
     ctx.images.delete_one({'_id': id})
 
@@ -545,7 +545,7 @@ def test_lookup_acl(ctx):
     id = ctx.images.insert_one(record).inserted_id
     i = ctx.query.copy()
     session = ctx.session
-    lup = ctx.m.lookup(session, i['system'], i['itype'], i['tag'])
+    lup = ctx.m.lookup(session, i['itype'], i['tag'])
     assert lup
     ctx.images.delete_one({'_id': id})
 
@@ -557,7 +557,7 @@ def test_lookup_acl(ctx):
     id = ctx.images.insert_one(record).inserted_id
     i = ctx.query.copy()
     session = ctx.session
-    lup = ctx.m.lookup(session, i['system'], i['itype'], i['tag'])
+    lup = ctx.m.lookup(session, i['itype'], i['tag'])
     assert lup
     ctx.images.delete_one({'_id': id})
     record['userACL'] = []
@@ -565,7 +565,7 @@ def test_lookup_acl(ctx):
     id = ctx.images.insert_one(record).inserted_id
     i = ctx.query.copy()
     session = ctx.session
-    lup = ctx.m.lookup(session, i['system'], i['itype'], i['tag'])
+    lup = ctx.m.lookup(session, i['itype'], i['tag'])
     assert lup
     ctx.images.delete_one({'_id': id})
 
@@ -578,7 +578,7 @@ def test_list(ctx):
     rec2 = record.copy()
     rec2['status'] = 'FAILURE'
     session = ctx.session
-    li = ctx.m.imglist(session, ctx.system)
+    li = ctx.m.imglist(session)
     assert len(li) == 1
     lup = li[0]
     assert '_id' in lup
@@ -694,7 +694,7 @@ def test_pull_mocked(ctx):
     # Track through transistions
     state = time_wait(ctx, id)
     assert state == 'READY'
-    imagerec = ctx.mtm.lookup(session, pr['system'], pr['itype'], pr['tag'])
+    imagerec = ctx.mtm.lookup(session, pr['itype'], pr['tag'])
     assert 'ENTRY' in imagerec
     assert 'ENV' in imagerec
     # Cause a failure
@@ -1028,7 +1028,7 @@ def test_import(ctx):
     # Track through transistions
     state = time_wait(ctx, id)
     assert state == 'READY'
-    imagerec = ctx.mtm.lookup(session, pr['system'], pr['itype'], pr['tag'])
+    imagerec = ctx.mtm.lookup(session, pr['itype'], pr['tag'])
     assert 'ENTRY' in imagerec
     assert 'ENV' in imagerec
 
@@ -1086,7 +1086,7 @@ def test_autoexpire_stuckpull(ctx):
     id = ctx.images.insert_one(record).inserted_id
     assert id
     session = ctx.admin_session
-    ctx.m.autoexpire(session, ctx.system)
+    ctx.m.autoexpire(session)
     state = ctx.m.get_state(id)
     assert state is None
 
@@ -1097,7 +1097,7 @@ def test_autoexpire_recentpull(ctx):
     id = ctx.images.insert_one(record).inserted_id
     assert id
     session = ctx.admin_session
-    ctx.m.autoexpire(session, ctx.system)
+    ctx.m.autoexpire(session)
     state = ctx.m.get_state(id)
     assert state == 'PENDING'
 
@@ -1113,7 +1113,7 @@ def test_autoexpire(ctx):
     file, metafile = create_fakeimage(ctx, ctx.system, record['id'],
                                       ctx.format)
     session = ctx.admin_session
-    ctx.m.autoexpire(session, ctx.system)  # ,delay=False)
+    ctx.m.autoexpire(session)  # ,delay=False)
     time.sleep(1)
     state = ctx.m.get_state(id)
     assert state == 'EXPIRED'
@@ -1132,7 +1132,7 @@ def test_autoexpire_missing(ctx):
     id = ctx.images.insert_one(record).inserted_id
     assert id
     session = ctx.admin_session
-    ctx.m.autoexpire(session, ctx.system)  # ,delay=False)
+    ctx.m.autoexpire(session)  # ,delay=False)
     state = ctx.m.get_state(id)
     assert state == 'PULLING'
 
@@ -1147,7 +1147,7 @@ def test_autoexpire_dontexpire(ctx):
     file, metafile = create_fakeimage(ctx, ctx.system, record['id'],
                                       ctx.format)
     session = ctx.admin_session
-    ctx.m.autoexpire(session, ctx.system)  # ,delay=False)
+    ctx.m.autoexpire(session)  # ,delay=False)
     time.sleep(2)
     state = ctx.m.get_state(id)
     assert state == 'READY'
@@ -1166,7 +1166,7 @@ def test_autoexpire_othersystem(ctx):
     file, metafile = create_fakeimage(ctx, ctx.system, record['id'],
                                       ctx.format)
     session = ctx.admin_session
-    ctx.m.autoexpire(session, ctx.system)  # ,delay=False)
+    ctx.m.autoexpire(session)  # ,delay=False)
     time.sleep(2)
     state = ctx.m.get_state(id)
     assert state == 'READY'
@@ -1189,21 +1189,21 @@ def test_metrics(ctx):
         rec['time'] = time.time()
         ctx.metrics.insert_one(rec.copy())
     session = ctx.admin_session
-    recs = ctx.m.get_metrics(session, ctx.system, 10)  # ,delay=False)
+    recs = ctx.m.get_metrics(session, 10)  # ,delay=False)
     assert recs
     assert len(recs) == 10
     # Try pulling more records than we have
-    recs = ctx.m.get_metrics(session, ctx.system, 101)  # ,delay=False)
+    recs = ctx.m.get_metrics(session, 101)  # ,delay=False)
     assert recs
     assert len(recs) == 100
 
     session = ctx.session
-    recs = ctx.m.get_metrics(session, ctx.system, 10)  # ,delay=False)
+    recs = ctx.m.get_metrics(session, 10)  # ,delay=False)
     assert recs == []
 
     session = ctx.admin_session
     ctx.m.metrics = None
-    recs = ctx.m.get_metrics(session, ctx.system, 10)  # ,delay=False)
+    recs = ctx.m.get_metrics(session, 10)  # ,delay=False)
     assert recs == []
     ctx.m.metrics = True
 
@@ -1312,7 +1312,7 @@ def test_labels(ctx):
     assert 'LABELS' in mrec
     assert 'alabel' in mrec['LABELS']
     pr = ctx.query.copy()
-    look = m.lookup(session, pr['system'], pr['itype'], pr['tag'])
+    look = m.lookup(session, pr['itype'], pr['tag'])
     assert 'LABELS' in look
     assert 'alabel' in look['LABELS']
     ctx.images.drop()
