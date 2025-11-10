@@ -177,20 +177,20 @@ async def pull(system: str, imgtype: str, tag: str,
     logging.debug(f'data: {str(data)}')
 
     logging.debug(f"pull system={system} imgtype={imgtype} tag={tag}")
-    i = {'system': system, 'itype': imgtype, 'tag': tag}
+    userACL = None
+    groupACL = None
     if data and data.allowed_uids:
         # Convert to integers
-        i['userACL'] = list(map(lambda x: int(x),
-                            data.allowed_uids.split(',')))
+        userACL = list(map(lambda x: int(x),
+                           data.allowed_uids.split(',')))
     if data and data.allowed_gids:
         # Convert to integers
-        i['groupACL'] = list(map(lambda x: int(x),
-                             data.allowed_gids.split(',')))
+        groupACL = list(map(lambda x: int(x),
+                            data.allowed_gids.split(',')))
     try:
-        logging.debug(i)
         session = authenticate(config, auth, system)
         logging.debug(session)
-        rec = mgr.pull(session, i)
+        rec = mgr.pull(session, imgtype, tag, userACL, groupACL)
         logging.debug(rec)
     except AuthenticationError as ex:
         logging.warning(f"Auth error {str(ex)}")

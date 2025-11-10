@@ -342,7 +342,7 @@ class ImageMngr(object):
                         'image': record['pulltag']})
         return resp
 
-    def _pullable(self, rec: dict):
+    def _pullable(self, rec: dict | None):
         """
         An image is pullable when:
         -There is no existing record
@@ -414,31 +414,39 @@ class ImageMngr(object):
         self._images_insert(newimage)
         return newimage
 
-    def pull(self, session: Session, image: dict):
+    def pull(self, session: Session,
+             itype: str,
+             tag: str,
+             userACL: list[int],
+             groupACL: list[int]):
         """
         pull the image
         Takes an auth token, a request object
         """
-        request = {
-            'system': image['system'],
-            'itype': image['itype'],
-            'pulltag': image['tag']
-        }
         # If a pull request exist for this tag
         #  check to see if it is expired or a failure, if so remove it
         # otherwise
         #  return the record
-        rec = None
+
         # find any pull record
         self.update_states()
         # let's lookup the active image
         query = {
             'status': 'READY',
-            'system': image['system'],
-            'itype': image['itype'],
-            'tag': {'$in': [image['tag']]}
+            'system': session.system,
+            'itype': itype,
+            'tag': {'$in': [tag]}
         }
         rec = self._images_find_one(query)
+
+        # See if there are any existing pull requests
+        # that match this image that aren't in a
+        # ready state
+        request = {
+            'system': session.system,
+            'itype': itype,
+            'pulltag': tag
+        }
         for record in self._images_find(request):
             status = record['status']
             if status == 'READY' or status == 'SUCCESS':
@@ -456,11 +464,11 @@ class ImageMngr(object):
                 recent = True
         request['userACL'] = []
         request['groupACL'] = []
-        if 'userACL' in image and image['userACL'] != []:
-            request['userACL'] = self._make_acl(image['userACL'],
+        if userACL and userACL != []:
+            request['userACL'] = self._make_acl(userACL,
                                                 session.uid)
-        if 'groupACL' in image and image['groupACL'] != []:
-            request['groupACL'] = self._make_acl(image['groupACL'],
+        if groupACL and groupACL != []:
+            request['groupACL'] = self._make_acl(groupACL,
                                                  session.gid)
         if self._compare_list(request, rec, 'userACL') and \
                 self._compare_list(request, rec, 'groupACL'):
